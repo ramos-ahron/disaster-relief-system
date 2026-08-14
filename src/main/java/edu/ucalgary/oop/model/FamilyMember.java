@@ -70,6 +70,16 @@ public final class FamilyMember {
         child.parents.remove(parent);
     }
 
+    /** All ancestors with their shortest distance in generations (parents are 1). Shared ancestors appear once. */
+    public Map<FamilyMember, Integer> ancestors() {
+        return reach(true);
+    }
+
+    /** All descendants with their shortest distance in generations (children are 1). */
+    public Map<FamilyMember, Integer> descendants() {
+        return reach(false);
+    }
+
     private int biologicalParentCount() {
         int n = 0;
         for (ParentKind kind : parents.values()) {
