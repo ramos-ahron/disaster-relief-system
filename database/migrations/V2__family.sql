@@ -41,3 +41,56 @@ CREATE TABLE IF NOT EXISTS Partnership (
     CONSTRAINT partnership_dates_check CHECK (end_date IS NULL OR end_date >= start_date),
     CONSTRAINT partnership_unique UNIQUE (person1_id, person2_id, start_date)
 );
+
+-- Cycle check and biological slot assignment.
+-- A global advisory lock serializes writers, so a transaction always checks against
+-- every row committed before it. Under READ COMMITTED each statement in this function
+-- takes a fresh snapshot after the lock is granted. The lock is released at commit or rollback.
+-- Known limit: all ParentChild writes are serialized. If write volume ever matters,
+-- lock per connected component or switch to SERIALIZABLE with retry.
+-- Error codes: FC001 cycle, FC002 no free biological slot.
+CREATE OR REPLACE FUNCTION parentchild_guard() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+    IF NEW.parent_id = NEW.child_id THEN
+        RETURN NEW;   -- rejected by parentchild_no_self
+    END IF;
+
+    PERFORM pg_advisory_xact_lock(380001);
+
+    -- The new edge closes a cycle if the child is already an ancestor of the parent.
+    -- UNION drops repeated rows; the depth cap stops the walk if bad data already holds a cycle.
+    IF EXISTS (
+        WITH RECURSIVE up(id, depth) AS (
+            SELECT NEW.parent_id, 0
+            UNION
+            SELECT pc.parent_id, up.depth + 1
+            FROM ParentChild pc JOIN up ON pc.child_id = up.id
+            WHERE up.depth < 1000
+              AND NOT (TG_OP = 'UPDATE' AND pc.parent_id = OLD.parent_id AND pc.child_id = OLD.child_id)
+        )
+        SELECT 1 FROM up WHERE id = NEW.child_id
+    ) THEN
+        RAISE EXCEPTION 'parent-child cycle' USING ERRCODE = 'FC001';
+    END IF;
+
+    IF NEW.kind <> 'BIOLOGICAL' THEN
+        NEW.bio_slot := NULL;
+    ELSIF TG_OP = 'UPDATE' AND OLD.kind = 'BIOLOGICAL' AND OLD.child_id = NEW.child_id THEN
+        NEW.bio_slot := OLD.bio_slot;
+    ELSE
+        SELECT s INTO NEW.bio_slot FROM generate_series(1, 2) AS s
+        WHERE NOT EXISTS (SELECT 1 FROM ParentChild
+                          WHERE child_id = NEW.child_id AND kind = 'BIOLOGICAL' AND bio_slot = s)
+        ORDER BY s LIMIT 1;
+        IF NEW.bio_slot IS NULL THEN
+            RAISE EXCEPTION 'child already has two biological parents' USING ERRCODE = 'FC002';
+        END IF;
+    END IF;
+    RETURN NEW;
+END
+$$;
+
+DROP TRIGGER IF EXISTS parentchild_guard ON ParentChild;
+CREATE TRIGGER parentchild_guard
+    BEFORE INSERT OR UPDATE OF parent_id, child_id, kind ON ParentChild
+    FOR EACH ROW EXECUTE FUNCTION parentchild_guard();
