@@ -1,6 +1,7 @@
 package edu.ucalgary.oop.service;
 
 import edu.ucalgary.oop.model.FamilyMember;
+import edu.ucalgary.oop.model.ParentKind;
 
 import java.util.List;
 
@@ -12,4 +13,8 @@ import java.util.List;
  */
 public interface FamilyStore {
     List<FamilyMember> persons();
+
+    void addParent(long parentId, long childId, ParentKind kind);
+
+    void removeParent(long parentId, long childId);
 }

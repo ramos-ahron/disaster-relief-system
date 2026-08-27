@@ -1,9 +1,11 @@
 package edu.ucalgary.oop.persistence;
 
 import edu.ucalgary.oop.model.FamilyMember;
+import edu.ucalgary.oop.model.ParentKind;
 import edu.ucalgary.oop.service.FamilyStore;
 
 import java.sql.Connection;
+import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
@@ -35,6 +37,54 @@ public final class JdbcFamilyStore implements FamilyStore {
         } catch (SQLException e) {
             throw new IllegalStateException(e);
         }
+    }
+
+    @Override
+    public void addParent(long parentId, long childId, ParentKind kind) {
+        try (Connection c = database.connect()) {
+            insertParentChild(c, parentId, childId, kind);
+        } catch (SQLException e) {
+            throw explainParentChild(e);
+        }
+    }
+
+    @Override
+    public void removeParent(long parentId, long childId) {
+        try (Connection c = database.connect();
+             PreparedStatement ps = c.prepareStatement("DELETE FROM ParentChild WHERE parent_id = ? AND child_id = ?")) {
+            ps.setLong(1, parentId);
+            ps.setLong(2, childId);
+            if (ps.executeUpdate() == 0) {
+                throw new IllegalArgumentException("Relation not found");
+            }
+        } catch (SQLException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    /** Package private so a test can run it inside its own transaction. */
+    static void insertParentChild(Connection c, long parentId, long childId, ParentKind kind) throws SQLException {
+        try (PreparedStatement ps = c.prepareStatement("INSERT INTO ParentChild (parent_id, child_id, kind) VALUES (?, ?, ?)")) {
+            ps.setLong(1, parentId);
+            ps.setLong(2, childId);
+            ps.setString(3, kind.name());
+            ps.executeUpdate();
+        }
+    }
+
+    // FC001 and FC002 are raised by the parentchild_guard trigger.
+    private static RuntimeException explainParentChild(SQLException e) {
+        String msg = String.valueOf(e.getMessage());
+        return switch (String.valueOf(e.getSQLState())) {
+            case "FC001" -> new IllegalArgumentException("Relation would create a cycle");
+            case "FC002" -> new IllegalArgumentException("Child already has two biological parents");
+            case "23505" -> new IllegalArgumentException(msg.contains("parentchild_bio_slot_uq")
+                    ? "Child already has two biological parents" : "Relation already exists");
+            case "23503" -> new IllegalArgumentException("Unknown person");
+            case "23514" -> new IllegalArgumentException(msg.contains("parentchild_no_self")
+                    ? "A person cannot be their own parent" : "Unknown relation kind");
+            default -> new IllegalStateException(e);
+        };
     }
 
     private static String name(String alias) {

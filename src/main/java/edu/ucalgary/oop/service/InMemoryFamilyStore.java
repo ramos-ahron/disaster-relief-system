@@ -1,6 +1,7 @@
 package edu.ucalgary.oop.service;
 
 import edu.ucalgary.oop.model.FamilyMember;
+import edu.ucalgary.oop.model.ParentKind;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -22,5 +23,23 @@ public final class InMemoryFamilyStore implements FamilyStore {
     @Override
     public List<FamilyMember> persons() {
         return new ArrayList<>(people.values());
+    }
+
+    @Override
+    public void addParent(long parentId, long childId, ParentKind kind) {
+        FamilyMember.link(person(parentId), person(childId), kind);
+    }
+
+    @Override
+    public void removeParent(long parentId, long childId) {
+        FamilyMember.unlink(person(parentId), person(childId));
+    }
+
+    private FamilyMember person(long id) {
+        FamilyMember m = people.get(id);
+        if (m == null) {
+            throw new IllegalArgumentException("Unknown person");
+        }
+        return m;
     }
 }
