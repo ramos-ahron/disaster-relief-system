@@ -17,4 +17,10 @@ public interface FamilyStore {
     void addParent(long parentId, long childId, ParentKind kind);
 
     void removeParent(long parentId, long childId);
+
+    /** The person with ancestors linked above, at most maxDepth generations. */
+    FamilyMember ancestry(long personId, int maxDepth);
+
+    /** The person with descendants linked below, at most maxDepth generations. */
+    FamilyMember descendancy(long personId, int maxDepth);
 }

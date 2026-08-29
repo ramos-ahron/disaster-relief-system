@@ -10,7 +10,9 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * FamilyStore on the ParentChild and Partnership tables. The rules live in the database
@@ -19,6 +21,25 @@ import java.util.List;
  * Known limit: no connection pool. Add one if request volume grows.
  */
 public final class JdbcFamilyStore implements FamilyStore {
+    // %1$s is the column matched against the current person, %2$s the column that is followed.
+    // UNION drops repeated rows, so shared ancestors are expanded once per depth.
+    // The depth limit also ends the walk if bad data contains a cycle.
+    private static final String WALK =
+            "WITH RECURSIVE walk(parent_id, child_id, kind, depth) AS ("
+            + " SELECT parent_id, child_id, kind, 1 FROM ParentChild WHERE %1$s = ?"
+            + " UNION"
+            + " SELECT pc.parent_id, pc.child_id, pc.kind, walk.depth + 1"
+            + " FROM ParentChild pc JOIN walk ON pc.%1$s = walk.%2$s WHERE walk.depth < ?)"
+            + " SELECT w.parent_id, w.child_id, w.kind, MIN(w.depth) AS depth,"
+            + " " + name("p") + " AS parent_name, " + name("c") + " AS child_name"
+            + " FROM walk w"
+            + " JOIN DisasterVictim p ON p.victim_id = w.parent_id"
+            + " JOIN DisasterVictim c ON c.victim_id = w.child_id"
+            + " GROUP BY w.parent_id, w.child_id, w.kind, p.first_name, p.last_name, c.first_name, c.last_name"
+            + " ORDER BY depth, w.parent_id, w.child_id";
+    private static final String UP = String.format(WALK, "child_id", "parent_id");
+    private static final String DOWN = String.format(WALK, "parent_id", "child_id");
+
     private final Database database;
 
     public JdbcFamilyStore(Database database) {
@@ -62,6 +83,16 @@ public final class JdbcFamilyStore implements FamilyStore {
         }
     }
 
+    @Override
+    public FamilyMember ancestry(long personId, int maxDepth) {
+        return graph(personId, maxDepth, UP);
+    }
+
+    @Override
+    public FamilyMember descendancy(long personId, int maxDepth) {
+        return graph(personId, maxDepth, DOWN);
+    }
+
     /** Package private so a test can run it inside its own transaction. */
     static void insertParentChild(Connection c, long parentId, long childId, ParentKind kind) throws SQLException {
         try (PreparedStatement ps = c.prepareStatement("INSERT INTO ParentChild (parent_id, child_id, kind) VALUES (?, ?, ?)")) {
@@ -69,6 +100,41 @@ public final class JdbcFamilyStore implements FamilyStore {
             ps.setLong(2, childId);
             ps.setString(3, kind.name());
             ps.executeUpdate();
+        }
+    }
+
+    private FamilyMember graph(long personId, int maxDepth, String sql) {
+        try (Connection c = database.connect()) {
+            Map<Long, FamilyMember> byId = new HashMap<>();
+            try (PreparedStatement ps = c.prepareStatement("SELECT " + name("v") + " FROM DisasterVictim v WHERE victim_id = ?")) {
+                ps.setLong(1, personId);
+                try (ResultSet rs = ps.executeQuery()) {
+                    if (!rs.next()) {
+                        throw new IllegalArgumentException("Unknown person");
+                    }
+                    byId.put(personId, new FamilyMember(personId, rs.getString(1)));
+                }
+            }
+            try (PreparedStatement ps = c.prepareStatement(sql)) {
+                ps.setLong(1, personId);
+                ps.setInt(2, maxDepth);
+                try (ResultSet rs = ps.executeQuery()) {
+                    while (rs.next()) {
+                        String parentName = rs.getString("parent_name");
+                        String childName = rs.getString("child_name");
+                        FamilyMember parent = byId.computeIfAbsent(rs.getLong("parent_id"), id -> new FamilyMember(id, parentName));
+                        FamilyMember child = byId.computeIfAbsent(rs.getLong("child_id"), id -> new FamilyMember(id, childName));
+                        try {
+                            FamilyMember.link(parent, child, ParentKind.valueOf(rs.getString("kind")));
+                        } catch (IllegalArgumentException bad) {
+                            throw new IllegalStateException("Stored family data is inconsistent: " + bad.getMessage());
+                        }
+                    }
+                }
+            }
+            return byId.get(personId);
+        } catch (SQLException e) {
+            throw new IllegalStateException(e);
         }
     }
 
