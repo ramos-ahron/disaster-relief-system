@@ -5,10 +5,12 @@ import edu.ucalgary.oop.model.ParentKind;
 import edu.ucalgary.oop.service.FamilyStore;
 
 import java.sql.Connection;
+import java.sql.Date;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -91,6 +93,41 @@ public final class JdbcFamilyStore implements FamilyStore {
     @Override
     public FamilyMember descendancy(long personId, int maxDepth) {
         return graph(personId, maxDepth, DOWN);
+    }
+
+    @Override
+    public long addPartnership(long a, long b, LocalDate start, LocalDate end) {
+        if (a == b) {
+            throw new IllegalArgumentException("A person cannot partner themselves");
+        }
+        try (Connection c = database.connect(); PreparedStatement ps = c.prepareStatement(
+                "INSERT INTO Partnership (person1_id, person2_id, start_date, end_date) VALUES (?, ?, ?, ?)"
+                        + " RETURNING partnership_id")) {
+            ps.setLong(1, Math.min(a, b));
+            ps.setLong(2, Math.max(a, b));
+            ps.setDate(3, Date.valueOf(start));
+            ps.setDate(4, end == null ? null : Date.valueOf(end));
+            try (ResultSet rs = ps.executeQuery()) {
+                rs.next();
+                return rs.getLong(1);
+            }
+        } catch (SQLException e) {
+            throw switch (String.valueOf(e.getSQLState())) {
+                case "23505" -> new IllegalArgumentException("Partnership already exists");
+                case "23503" -> new IllegalArgumentException("Unknown person");
+                case "23514" -> new IllegalArgumentException("End date is before start date");
+                default -> new IllegalStateException(e);
+            };
+        }
+    }
+
+    @Override
+    public boolean isReady() {
+        try (Connection c = database.connect()) {
+            return c.isValid(2);
+        } catch (SQLException e) {
+            return false;
+        }
     }
 
     /** Package private so a test can run it inside its own transaction. */

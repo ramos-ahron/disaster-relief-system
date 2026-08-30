@@ -3,11 +3,14 @@ package edu.ucalgary.oop.service;
 import edu.ucalgary.oop.model.FamilyMember;
 import edu.ucalgary.oop.model.ParentKind;
 
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * FamilyStore without a database, for tests and demos. FamilyMember.link enforces the same
@@ -15,6 +18,7 @@ import java.util.Map;
  */
 public final class InMemoryFamilyStore implements FamilyStore {
     private final Map<Long, FamilyMember> people = new LinkedHashMap<>();
+    private final Set<List<Object>> partnerships = new HashSet<>();
 
     public InMemoryFamilyStore addPerson(long id, String name) {
         people.put(id, new FamilyMember(id, name));
@@ -44,6 +48,27 @@ public final class InMemoryFamilyStore implements FamilyStore {
     @Override
     public FamilyMember descendancy(long personId, int maxDepth) {
         return copy(personId, maxDepth, false);
+    }
+
+    @Override
+    public long addPartnership(long a, long b, LocalDate start, LocalDate end) {
+        person(a);
+        person(b);
+        if (a == b) {
+            throw new IllegalArgumentException("A person cannot partner themselves");
+        }
+        if (end != null && end.isBefore(start)) {
+            throw new IllegalArgumentException("End date is before start date");
+        }
+        if (!partnerships.add(List.of(Math.min(a, b), Math.max(a, b), start))) {
+            throw new IllegalArgumentException("Partnership already exists");
+        }
+        return partnerships.size();
+    }
+
+    @Override
+    public boolean isReady() {
+        return true;
     }
 
     private FamilyMember person(long id) {

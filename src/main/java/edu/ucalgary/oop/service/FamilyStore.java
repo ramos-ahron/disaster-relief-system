@@ -3,6 +3,7 @@ package edu.ucalgary.oop.service;
 import edu.ucalgary.oop.model.FamilyMember;
 import edu.ucalgary.oop.model.ParentKind;
 
+import java.time.LocalDate;
 import java.util.List;
 
 /**
@@ -23,4 +24,10 @@ public interface FamilyStore {
 
     /** The person with descendants linked below, at most maxDepth generations. */
     FamilyMember descendancy(long personId, int maxDepth);
+
+    /** @return the new partnership id; the two ids may come in either order */
+    long addPartnership(long a, long b, LocalDate start, LocalDate end);
+
+    /** True when the store can serve requests. */
+    boolean isReady();
 }
