@@ -5,6 +5,7 @@ import edu.ucalgary.oop.model.ParentKind;
 import org.junit.Before;
 import org.junit.Test;
 
+import java.time.LocalDate;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -90,5 +91,21 @@ public abstract class FamilyStoreContract {
         assertEquals(3, store.ancestry(id.get("C"), 1).ancestors().size());
         assertTrue(store.ancestry(id.get("X"), 50).ancestors().isEmpty());
         assertEquals("Unknown person", error(() -> store.ancestry(9999, 5)));
+    }
+
+    @Test
+    public void partnershipsAreUnorderedAndValidated() {
+        LocalDate start = LocalDate.of(2020, 1, 1);
+        assertTrue(store.addPartnership(id.get("P2"), id.get("P1"), start, null) > 0);
+        assertEquals("Partnership already exists", error(() -> store.addPartnership(id.get("P1"), id.get("P2"), start, null)));
+        assertEquals("End date is before start date",
+                error(() -> store.addPartnership(id.get("P1"), id.get("P2"), start.plusYears(2), start)));
+        error(() -> store.addPartnership(id.get("P1"), id.get("P1"), start, null));
+        assertEquals("Unknown person", error(() -> store.addPartnership(id.get("P1"), 9999, start, null)));
+    }
+
+    @Test
+    public void isReady() {
+        assertTrue(store.isReady());
     }
 }
