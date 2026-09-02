@@ -2,12 +2,14 @@ package edu.ucalgary.oop.api;
 
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
+import edu.ucalgary.oop.model.FamilyMember;
 import edu.ucalgary.oop.service.FamilyStore;
 
 import java.io.IOException;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
+import java.util.StringJoiner;
 
 /**
  * HTTP API over a FamilyStore, on the JDK's built-in HttpServer. Answers are JSON.
@@ -40,6 +42,10 @@ public final class ApiServer {
                 boolean ready = store.isReady();
                 status = ready ? 200 : 503;
                 body = "{\"ready\":" + ready + "}";
+            } else if (route.equals("GET /persons")) {
+                StringJoiner list = new StringJoiner(",", "[", "]");
+                store.persons().forEach(m -> list.add(node(m, null)));
+                body = list.toString();
             } else {
                 status = 404;
                 body = error("Not found");
@@ -58,6 +64,10 @@ public final class ApiServer {
         try (OutputStream out = ex.getResponseBody()) {
             out.write(bytes);
         }
+    }
+
+    private static String node(FamilyMember m, Integer depth) {
+        return "{\"id\":" + m.getId() + ",\"name\":" + quote(m.getName()) + (depth == null ? "" : ",\"depth\":" + depth) + "}";
     }
 
     private static String error(String message) {
