@@ -19,6 +19,8 @@ import java.time.LocalDate;
 import java.util.List;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 
 /** Routing, status codes and JSON shape over a real HTTP socket, with an in-memory store. */
 public class ApiServerTest {
@@ -92,6 +94,52 @@ public class ApiServerTest {
         assertEquals("200", call("GET", "/ready", null)[0]);
         ready = false;
         assertEquals("503", call("GET", "/ready", null)[0]);
+    }
+
+    @Test
+    public void listsPersonsWithEscapedNames() throws IOException {
+        String[] r = call("GET", "/persons", null);
+        assertEquals("200", r[0]);
+        assertEquals("[{\"id\":1,\"name\":\"Ann \\\"A\\\" Lee\"},{\"id\":2,\"name\":\"Bo\"},{\"id\":3,\"name\":\"Cy\"}]", r[1]);
+    }
+
+    @Test
+    public void addThenWalkAncestorsAndDescendants() throws IOException {
+        assertEquals("201", call("POST", "/parent-child", "parent=2&child=3&kind=biological")[0]);
+        assertEquals("201", call("POST", "/parent-child", "parent=1&child=2&kind=STEP")[0]);
+        String[] up = call("GET", "/persons/3/ancestors", null);
+        assertEquals("200", up[0]);
+        assertEquals("{\"root\":3,\"nodes\":[{\"id\":3,\"name\":\"Cy\",\"depth\":0},{\"id\":2,\"name\":\"Bo\",\"depth\":1},"
+                + "{\"id\":1,\"name\":\"Ann \\\"A\\\" Lee\",\"depth\":2}],"
+                + "\"edges\":[{\"parent\":2,\"child\":3,\"kind\":\"BIOLOGICAL\"},{\"parent\":1,\"child\":2,\"kind\":\"STEP\"}]}", up[1]);
+        String[] shallow = call("GET", "/persons/1/descendants?maxDepth=1", null);
+        assertEquals("{\"root\":1,\"nodes\":[{\"id\":1,\"name\":\"Ann \\\"A\\\" Lee\",\"depth\":0},{\"id\":2,\"name\":\"Bo\",\"depth\":1}],"
+                + "\"edges\":[{\"parent\":1,\"child\":2,\"kind\":\"STEP\"}]}", shallow[1]);
+        assertEquals("200", call("DELETE", "/parent-child?parent=1&child=2", null)[0]);
+        assertEquals("400", call("DELETE", "/parent-child?parent=1&child=2", null)[0]);
+    }
+
+    @Test
+    public void partnerships() throws IOException {
+        assertEquals("201", call("POST", "/partnerships", "person1=1&person2=2&start=2020-01-01")[0]);
+        assertEquals("400", call("POST", "/partnerships", "person1=2&person2=1&start=2020-01-01")[0]);
+        assertEquals("400", call("POST", "/partnerships", "person1=1&person2=3&start=yesterday")[0]);
+    }
+
+    @Test
+    public void badInputIsBadRequestAndInternalErrorsAreHidden() throws IOException {
+        String[] self = call("POST", "/parent-child", "parent=3&child=3&kind=STEP");
+        assertEquals("400", self[0]);
+        assertTrue(self[1].contains("own parent"));
+        assertEquals("400", call("POST", "/parent-child", "parent=1&child=x&kind=STEP")[0]);
+        assertEquals("400", call("POST", "/parent-child", "parent=1&child=2&kind=FOSTER")[0]);
+        assertEquals("400", call("POST", "/parent-child", "parent=1&kind=STEP")[0]);
+        assertEquals("400", call("GET", "/persons/99/ancestors", null)[0]);
+        assertEquals("400", call("POST", "/parent-child", "x=" + "a".repeat(5000))[0]);
+        broken = true;
+        String[] boom = call("POST", "/parent-child", "parent=1&child=2&kind=STEP");
+        assertEquals("500", boom[0]);
+        assertFalse(boom[1].contains("database down"));
     }
 
     @Test
