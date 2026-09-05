@@ -12,6 +12,8 @@ import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
+import java.time.LocalDate;
+import java.time.format.DateTimeParseException;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -72,11 +74,17 @@ public final class ApiServer {
             } else if (route.equals("DELETE /parent-child")) {
                 store.removeParent(number(params, "parent"), number(params, "child"));
                 body = "{\"deleted\":true}";
+            } else if (route.equals("POST /partnerships")) {
+                String end = params.get("end");
+                long id = store.addPartnership(number(params, "person1"), number(params, "person2"),
+                        LocalDate.parse(required(params, "start")), end == null || end.isEmpty() ? null : LocalDate.parse(end));
+                status = 201;
+                body = "{\"id\":" + id + "}";
             } else {
                 status = 404;
                 body = error("Not found");
             }
-        } catch (IllegalArgumentException e) {   // includes NumberFormatException
+        } catch (IllegalArgumentException | DateTimeParseException e) {   // includes NumberFormatException
             status = 400;
             body = error(e.getMessage());
         } catch (RuntimeException e) {
