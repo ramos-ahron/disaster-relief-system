@@ -6,10 +6,17 @@ import edu.ucalgary.oop.model.FamilyMember;
 import edu.ucalgary.oop.service.FamilyStore;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
+import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.StringJoiner;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * HTTP API over a FamilyStore, on the JDK's built-in HttpServer. Answers are JSON.
@@ -17,6 +24,10 @@ import java.util.StringJoiner;
  * or an authenticating proxy.
  */
 public final class ApiServer {
+    private static final Pattern WALK = Pattern.compile("/persons/(\\d+)/(ancestors|descendants)");
+    private static final int DEFAULT_DEPTH = 50;
+    private static final int MAX_BODY = 4096;
+
     private final FamilyStore store;
 
     public ApiServer(FamilyStore store) {
@@ -35,7 +46,9 @@ public final class ApiServer {
         int status = 200;
         String body;
         try {
+            Map<String, String> params = params(ex);
             String route = ex.getRequestMethod() + " " + ex.getRequestURI().getPath();
+            Matcher walk = WALK.matcher(ex.getRequestURI().getPath());
             if (route.equals("GET /health")) {
                 body = "{\"status\":\"ok\"}";
             } else if (route.equals("GET /ready")) {
@@ -46,11 +59,16 @@ public final class ApiServer {
                 StringJoiner list = new StringJoiner(",", "[", "]");
                 store.persons().forEach(m -> list.add(node(m, null)));
                 body = list.toString();
+            } else if (ex.getRequestMethod().equals("GET") && walk.matches()) {
+                int depth = params.containsKey("maxDepth") ? Integer.parseInt(params.get("maxDepth")) : DEFAULT_DEPTH;
+                long id = Long.parseLong(walk.group(1));
+                boolean up = walk.group(2).equals("ancestors");
+                body = graph(up ? store.ancestry(id, depth) : store.descendancy(id, depth), up);
             } else {
                 status = 404;
                 body = error("Not found");
             }
-        } catch (IllegalArgumentException e) {
+        } catch (IllegalArgumentException e) {   // includes NumberFormatException
             status = 400;
             body = error(e.getMessage());
         } catch (RuntimeException e) {
@@ -66,8 +84,53 @@ public final class ApiServer {
         }
     }
 
+    // Flat graph: nodes with their distance from the root, and the links between them.
+    // A nested tree would repeat shared ancestors.
+    private static String graph(FamilyMember root, boolean up) {
+        Map<FamilyMember, Integer> nodes = new LinkedHashMap<>();
+        nodes.put(root, 0);
+        nodes.putAll(up ? root.ancestors() : root.descendants());
+        StringJoiner nodeList = new StringJoiner(",", "[", "]");
+        StringJoiner edgeList = new StringJoiner(",", "[", "]");
+        nodes.forEach((member, depth) -> {
+            nodeList.add(node(member, depth));
+            (up ? member.getParents() : member.getChildren()).forEach((other, kind) -> {
+                FamilyMember parent = up ? other : member;
+                FamilyMember child = up ? member : other;
+                edgeList.add("{\"parent\":" + parent.getId() + ",\"child\":" + child.getId() + ",\"kind\":\"" + kind + "\"}");
+            });
+        });
+        return "{\"root\":" + root.getId() + ",\"nodes\":" + nodeList + ",\"edges\":" + edgeList + "}";
+    }
+
     private static String node(FamilyMember m, Integer depth) {
         return "{\"id\":" + m.getId() + ",\"name\":" + quote(m.getName()) + (depth == null ? "" : ",\"depth\":" + depth) + "}";
+    }
+
+    private static Map<String, String> params(HttpExchange ex) throws IOException {
+        Map<String, String> out = new HashMap<>();
+        parse(ex.getRequestURI().getRawQuery(), out);
+        try (InputStream in = ex.getRequestBody()) {
+            byte[] body = in.readNBytes(MAX_BODY + 1);
+            if (body.length > MAX_BODY) {
+                throw new IllegalArgumentException("Request body too large");
+            }
+            parse(new String(body, StandardCharsets.UTF_8), out);   // form bodies only
+        }
+        return out;
+    }
+
+    private static void parse(String encoded, Map<String, String> into) {
+        if (encoded == null || encoded.isEmpty()) {
+            return;
+        }
+        for (String pair : encoded.split("&")) {
+            int eq = pair.indexOf('=');
+            if (eq > 0) {
+                into.put(URLDecoder.decode(pair.substring(0, eq), StandardCharsets.UTF_8),
+                        URLDecoder.decode(pair.substring(eq + 1), StandardCharsets.UTF_8));
+            }
+        }
     }
 
     private static String error(String message) {
