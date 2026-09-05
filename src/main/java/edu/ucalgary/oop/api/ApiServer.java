@@ -3,6 +3,7 @@ package edu.ucalgary.oop.api;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import edu.ucalgary.oop.model.FamilyMember;
+import edu.ucalgary.oop.model.ParentKind;
 import edu.ucalgary.oop.service.FamilyStore;
 
 import java.io.IOException;
@@ -64,6 +65,13 @@ public final class ApiServer {
                 long id = Long.parseLong(walk.group(1));
                 boolean up = walk.group(2).equals("ancestors");
                 body = graph(up ? store.ancestry(id, depth) : store.descendancy(id, depth), up);
+            } else if (route.equals("POST /parent-child")) {
+                store.addParent(number(params, "parent"), number(params, "child"), kind(required(params, "kind")));
+                status = 201;
+                body = "{\"created\":true}";
+            } else if (route.equals("DELETE /parent-child")) {
+                store.removeParent(number(params, "parent"), number(params, "child"));
+                body = "{\"deleted\":true}";
             } else {
                 status = 404;
                 body = error("Not found");
@@ -130,6 +138,30 @@ public final class ApiServer {
                 into.put(URLDecoder.decode(pair.substring(0, eq), StandardCharsets.UTF_8),
                         URLDecoder.decode(pair.substring(eq + 1), StandardCharsets.UTF_8));
             }
+        }
+    }
+
+    private static String required(Map<String, String> params, String name) {
+        String v = params.get(name);
+        if (v == null || v.isEmpty()) {
+            throw new IllegalArgumentException("Missing parameter: " + name);
+        }
+        return v;
+    }
+
+    private static long number(Map<String, String> params, String name) {
+        try {
+            return Long.parseLong(required(params, name));
+        } catch (NumberFormatException e) {
+            throw new IllegalArgumentException(name + " must be a number");
+        }
+    }
+
+    private static ParentKind kind(String text) {
+        try {
+            return ParentKind.valueOf(text.toUpperCase());
+        } catch (IllegalArgumentException e) {
+            throw new IllegalArgumentException("kind must be BIOLOGICAL, ADOPTIVE or STEP");
         }
     }
 
