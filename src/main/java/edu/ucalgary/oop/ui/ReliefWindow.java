@@ -1,11 +1,14 @@
 package edu.ucalgary.oop.ui;
 
+import edu.ucalgary.oop.model.Dates;
 import edu.ucalgary.oop.model.DisasterVictim;
+import edu.ucalgary.oop.model.GenderOptions;
 import edu.ucalgary.oop.model.Inquirer;
 import edu.ucalgary.oop.model.Inventory;
 import edu.ucalgary.oop.model.Location;
 import edu.ucalgary.oop.model.Relationship;
 import edu.ucalgary.oop.service.CentralReliefService;
+import edu.ucalgary.oop.service.LocationReliefService;
 import edu.ucalgary.oop.service.ReliefRegistry;
 
 import javax.swing.BorderFactory;
@@ -17,6 +20,7 @@ import javax.swing.JScrollPane;
 import javax.swing.JTabbedPane;
 import javax.swing.JTextArea;
 import java.awt.GridLayout;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.function.Function;
 
@@ -26,17 +30,21 @@ import java.util.function.Function;
  * IllegalArgumentException and are shown as an error message.
  */
 public final class ReliefWindow {
+    private static final String NO_GENDER = "(not given)";
 
     private final JFrame frame = new JFrame("Disaster Relief Management");
     private final ReliefRegistry registry;
     private final CentralReliefService central;
+    private final LocationReliefService local;
 
     public ReliefWindow(ReliefRegistry registry) {
         this.registry = registry;
         this.central = new CentralReliefService(registry);
+        this.local = new LocationReliefService(registry);
 
         JTabbedPane tabs = new JTabbedPane();
         tabs.addTab("Central relief worker", centralTab());
+        tabs.addTab("Location relief worker", locationTab());
         frame.add(tabs);
         frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         frame.pack();
@@ -88,6 +96,40 @@ public final class ReliefWindow {
         return panel;
     }
 
+    private JPanel locationTab() {
+        JPanel panel = buttonPanel();
+        button(panel, "Missing people", () ->
+                info(lines(registry.missingPeople(), DisasterVictim::summary, "Nobody is missing.")));
+        button(panel, "People at a location", () -> {
+            Form f = new Form().choice("Location", locations());
+            if (f.show(frame, "People at a location")) {
+                info(lines(registry.occupantsOf(requireChosen(f, "Location")), DisasterVictim::summary, "Nobody is there."));
+            }
+        });
+        button(panel, "Register a victim", () -> {
+            Object[] genders = new Object[GenderOptions.all().size() + 1];
+            genders[0] = NO_GENDER;
+            System.arraycopy(GenderOptions.all().toArray(), 0, genders, 1, genders.length - 1);
+            Form f = new Form().field("First name").field("Last name").field("Entry date", LocalDate.now().toString())
+                    .field("Date of birth (optional)").choice("Gender", genders).field("Comments").choice("Location", locations());
+            if (f.show(frame, "Register a victim")) {
+                DisasterVictim v = local.register(f.text("First name"), f.text("Last name"),
+                        Dates.parse(f.text("Entry date"), "Entry date"), requireChosen(f, "Location"));
+                try {
+                    String dob = f.text("Date of birth (optional)");
+                    v.setDateOfBirth(dob.isEmpty() ? null : Dates.parse(dob, "Date of birth"));
+                    v.setGender(NO_GENDER.equals(f.chosen("Gender")) ? null : (String) f.chosen("Gender"));
+                    v.setComments(f.text("Comments"));
+                } catch (IllegalArgumentException e) {
+                    registry.removeVictim(v);   // all or nothing
+                    throw e;
+                }
+                info("Registered " + v.summary());
+            }
+        });
+        return panel;
+    }
+
     // ---- helpers
 
     private static JPanel buttonPanel() {
@@ -112,6 +154,10 @@ public final class ReliefWindow {
         JTextArea area = new JTextArea(text, Math.min(20, text.split("\n").length + 1), 50);
         area.setEditable(false);
         JOptionPane.showMessageDialog(frame, new JScrollPane(area), "Result", JOptionPane.INFORMATION_MESSAGE);
+    }
+
+    private Object[] locations() {
+        return registry.getLocations().toArray();
     }
 
     private Object[] shelters() {
