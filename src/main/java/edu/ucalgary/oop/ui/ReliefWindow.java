@@ -2,6 +2,8 @@ package edu.ucalgary.oop.ui;
 
 import edu.ucalgary.oop.model.DisasterVictim;
 import edu.ucalgary.oop.model.Inquirer;
+import edu.ucalgary.oop.model.Inventory;
+import edu.ucalgary.oop.model.Location;
 import edu.ucalgary.oop.model.Relationship;
 import edu.ucalgary.oop.service.CentralReliefService;
 import edu.ucalgary.oop.service.ReliefRegistry;
@@ -69,6 +71,20 @@ public final class ReliefWindow {
                 info(lines(registry.relationshipsOf(v), r -> describe(v, r), v.getFullName() + " has no recorded relationships."));
             }
         });
+        button(panel, "Add a location", () -> {
+            Form f = new Form().field("Name").field("Address").check("Shelter");
+            if (f.show(frame, "Add a location")) {
+                info("Added " + central.addLocation(f.text("Name"), f.text("Address"), f.checked("Shelter")) + ".");
+            }
+        });
+        button(panel, "Add supplies to a shelter", () -> {
+            Form f = new Form().choice("Shelter", shelters()).field("Type").field("Quantity");
+            if (f.show(frame, "Add supplies")) {
+                Location shelter = requireChosen(f, "Shelter");
+                central.addSupplies(shelter, f.text("Type"), f.number("Quantity"));
+                info(stock(shelter.getSupplies()));
+            }
+        });
         return panel;
     }
 
@@ -98,11 +114,32 @@ public final class ReliefWindow {
         JOptionPane.showMessageDialog(frame, new JScrollPane(area), "Result", JOptionPane.INFORMATION_MESSAGE);
     }
 
+    private Object[] shelters() {
+        return registry.getLocations().stream().filter(Location::isShelter).toArray();
+    }
+
+    private static Location requireChosen(Form f, String label) {
+        Object chosen = f.chosen(label);
+        if (chosen == null) {
+            throw new IllegalArgumentException("Add a location first");
+        }
+        return (Location) chosen;
+    }
+
     private static <T> String lines(List<T> items, Function<T, String> format, String whenEmpty) {
         return items.isEmpty() ? whenEmpty : String.join("\n", items.stream().map(format).toList());
     }
 
     private static String describe(DisasterVictim from, Relationship r) {
         return from.getFullName() + " - " + r.type() + " - " + r.otherThan(from).summary();
+    }
+
+    private static String stock(Inventory inventory) {
+        if (inventory.isEmpty()) {
+            return "Nothing in stock.";
+        }
+        StringBuilder sb = new StringBuilder();
+        inventory.asMap().forEach((type, n) -> sb.append(n).append(" x ").append(type).append('\n'));
+        return sb.toString().trim();
     }
 }
