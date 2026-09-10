@@ -6,6 +6,7 @@ import edu.ucalgary.oop.model.GenderOptions;
 import edu.ucalgary.oop.model.Inquirer;
 import edu.ucalgary.oop.model.Inventory;
 import edu.ucalgary.oop.model.Location;
+import edu.ucalgary.oop.model.MedicalRecord;
 import edu.ucalgary.oop.model.Relationship;
 import edu.ucalgary.oop.service.CentralReliefService;
 import edu.ucalgary.oop.service.LocationReliefService;
@@ -127,6 +128,50 @@ public final class ReliefWindow {
                 info("Registered " + v.summary());
             }
         });
+        button(panel, "Victim details", () -> {
+            Form f = new Form().field("Victim id");
+            if (f.show(frame, "Victim details")) {
+                info(details(registry.requireVictim(f.number("Victim id"))));
+            }
+        });
+        button(panel, "Move a victim", () -> {
+            Form f = new Form().field("Victim id").choice("New location", locations());
+            if (f.show(frame, "Move a victim")) {
+                DisasterVictim v = registry.requireVictim(f.number("Victim id"));
+                local.move(v, requireChosen(f, "New location"));
+                info(v.summary());
+            }
+        });
+        button(panel, "Discharge a victim", () -> {
+            Form f = new Form().field("Victim id");
+            if (f.show(frame, "Discharge a victim")) {
+                DisasterVictim v = registry.requireVictim(f.number("Victim id"));
+                local.discharge(v);
+                info("Removed " + v.getFullName() + ".");
+            }
+        });
+        button(panel, "Supplies at a shelter", () -> {
+            Form f = new Form().choice("Shelter", shelters());
+            if (f.show(frame, "Supplies at a shelter")) {
+                info(stock(requireChosen(f, "Shelter").getSupplies()));
+            }
+        });
+        button(panel, "Give supplies", () -> {
+            Form f = new Form().field("Victim id").field("Type").field("Quantity");
+            if (f.show(frame, "Give supplies")) {
+                DisasterVictim v = registry.requireVictim(f.number("Victim id"));
+                local.giveSupplies(v, f.text("Type"), f.number("Quantity"));
+                info(v.getFullName() + " now has:\n" + stock(v.getBelongings()));
+            }
+        });
+        button(panel, "Record a treatment", () -> {
+            Form f = new Form().field("Victim id").field("Treatment");
+            if (f.show(frame, "Record a treatment")) {
+                DisasterVictim v = registry.requireVictim(f.number("Victim id"));
+                local.treat(v, f.text("Treatment"));
+                info(details(v));
+            }
+        });
         return panel;
     }
 
@@ -186,6 +231,27 @@ public final class ReliefWindow {
         }
         StringBuilder sb = new StringBuilder();
         inventory.asMap().forEach((type, n) -> sb.append(n).append(" x ").append(type).append('\n'));
+        return sb.toString().trim();
+    }
+
+    private static String details(DisasterVictim v) {
+        StringBuilder sb = new StringBuilder(v.summary()).append('\n');
+        sb.append("Entered: ").append(v.getEntryDate()).append('\n');
+        if (v.getDateOfBirth() != null) {
+            sb.append("Born: ").append(v.getDateOfBirth()).append(" (age ").append(v.getAge()).append(")\n");
+        }
+        if (v.getGender() != null) {
+            sb.append("Gender: ").append(v.getGender()).append('\n');
+        }
+        if (v.getComments() != null && !v.getComments().isEmpty()) {
+            sb.append("Comments: ").append(v.getComments()).append('\n');
+        }
+        v.getDietaryRestrictions().forEach(d -> sb.append("Diet: ").append(d).append('\n'));
+        sb.append("Belongings:\n").append(stock(v.getBelongings())).append('\n');
+        for (MedicalRecord m : v.getMedicalRecords()) {
+            sb.append("Treated ").append(m.dateOfTreatment()).append(m.location() == null ? "" : " at " + m.location().getName())
+                    .append(": ").append(m.treatmentDetails()).append('\n');
+        }
         return sb.toString().trim();
     }
 }
