@@ -1,0 +1,47 @@
+# Local development only. These credentials are also the app's built-in defaults
+# (see Database.fromEnvironment). Do not reuse them anywhere else.
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: ensf380project
+      POSTGRES_USER: oop
+      POSTGRES_PASSWORD: ucalgary
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U oop -d ensf380project"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  migrate:
+    image: postgres:16
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PGHOST: db
+      PGDATABASE: ensf380project
+      PGUSER: oop
+      PGPASSWORD: ucalgary
+    volumes:
+      - ./database:/database:ro
+    entrypoint: ["/bin/sh", "/database/migrate.sh"]
+
+  api:
+    build: .
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      DB_URL: jdbc:postgresql://db:5432/ensf380project
+      DB_USER: oop
+      DB_PASSWORD: ucalgary
+    ports:
+      - "8080:8080"
+
+volumes:
+  pgdata:
