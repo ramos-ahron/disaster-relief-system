@@ -1,0 +1,51 @@
+# Applies the SQL files in the db-migrations ConfigMap, in name order. Every file can run again.
+# Create the ConfigMap from the repo before running the job:
+#   kubectl -n <K8S_NAMESPACE> create configmap db-migrations --from-file=database/migrations
+# A finished Job cannot be re-run, so delete it first: kubectl delete job db-migrate --ignore-not-found
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: db-migrate
+  labels:
+    app: disaster-relief-api
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 3600
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: migrate
+          image: postgres:16
+          command: ["sh", "-c"]
+          args:
+            - for f in /migrations/V*.sql; do echo "applying $f"; psql -v ON_ERROR_STOP=1 -q -f "$f"; done
+          env:
+            - name: PGHOST
+              value: postgres
+            - name: PGDATABASE
+              value: ensf380project
+            - name: PGUSER
+              valueFrom:
+                secretKeyRef:
+                  name: db-credentials
+                  key: username
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: db-credentials
+                  key: password
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+          volumeMounts:
+            - name: migrations
+              mountPath: /migrations
+      volumes:
+        - name: migrations
+          configMap:
+            name: db-migrations
