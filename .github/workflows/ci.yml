@@ -1,10 +1,18 @@
-# Build and test on every push and pull request.
+# Build and test on every push and pull request. On main, also push the image to Azure Container Registry
+# and deploy to Azure Kubernetes Service. Replace every <PLACEHOLDER> below (see docs/deployment.md).
 name: ci
 
 on:
   push:
     branches: [main]
   pull_request:
+
+env:
+  ACR_NAME: <ACR_NAME>
+  IMAGE_NAME: disaster-relief-api
+  AKS_RESOURCE_GROUP: <AKS_RESOURCE_GROUP>
+  AKS_CLUSTER_NAME: <AKS_CLUSTER_NAME>
+  K8S_NAMESPACE: <K8S_NAMESPACE>
 
 jobs:
   test:
@@ -34,3 +42,52 @@ jobs:
           cache: maven
       # The database tests use the postgres service above and wipe it first.
       - run: mvn -B verify
+
+  deploy:
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Build and push image
+        run: |
+          az acr login --name "$ACR_NAME"
+          IMAGE="$ACR_NAME.azurecr.io/$IMAGE_NAME:${{ github.sha }}"
+          docker build -t "$IMAGE" .
+          docker push "$IMAGE"
+
+      - uses: azure/use-kubelogin@v1
+        with:
+          kubelogin-version: v0.1.4
+
+      - uses: azure/aks-set-context@v4
+        with:
+          resource-group: ${{ env.AKS_RESOURCE_GROUP }}
+          cluster-name: ${{ env.AKS_CLUSTER_NAME }}
+          use-kubelogin: "true"
+
+      - name: Apply migrations
+        run: |
+          kubectl -n "$K8S_NAMESPACE" create configmap db-migrations --from-file=database/migrations \
+            --dry-run=client -o yaml | kubectl -n "$K8S_NAMESPACE" apply -f -
+          kubectl -n "$K8S_NAMESPACE" delete job db-migrate --ignore-not-found
+          kubectl -n "$K8S_NAMESPACE" apply -f k8s/migrate-job.yaml
+          kubectl -n "$K8S_NAMESPACE" wait --for=condition=complete job/db-migrate --timeout=180s
+
+      - name: Deploy
+        run: |
+          IMAGE="$ACR_NAME.azurecr.io/$IMAGE_NAME:${{ github.sha }}"
+          kubectl -n "$K8S_NAMESPACE" apply -f k8s/configmap.yaml -f k8s/service.yaml
+          sed "s|<ACR_NAME>.azurecr.io/disaster-relief-api:<IMAGE_TAG>|$IMAGE|" k8s/deployment.yaml \
+            | kubectl -n "$K8S_NAMESPACE" apply -f -
+          kubectl -n "$K8S_NAMESPACE" rollout status deployment/disaster-relief-api --timeout=180s
