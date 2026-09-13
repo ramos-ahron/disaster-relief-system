@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: api-config
+  labels:
+    app: disaster-relief-api
+data:
+  PORT: "8080"
+  # Points at the in-cluster StatefulSet. For an external server use its host name here.
+  DB_URL: "jdbc:postgresql://postgres:5432/ensf380project"

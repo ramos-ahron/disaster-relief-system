@@ -1,0 +1,15 @@
+# ClusterIP only: the API has no authentication. Expose it through an authenticating ingress if it must be reachable.
+apiVersion: v1
+kind: Service
+metadata:
+  name: disaster-relief-api
+  labels:
+    app: disaster-relief-api
+spec:
+  type: ClusterIP
+  selector:
+    app: disaster-relief-api
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
