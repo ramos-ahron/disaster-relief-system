@@ -56,3 +56,15 @@ Without Docker, run `database/local_setup.sql` once as a PostgreSQL superuser to
 ```
 PGHOST=localhost PGDATABASE=ensf380project PGUSER=oop PGPASSWORD=ucalgary sh database/migrate.sh
 ```
+
+## Using the desktop app
+
+The app loads everything from the database when it starts. Each button opens a short form. If a rule is broken (a date in the future, a phone number in the wrong format, more supplies than the shelter has), the app says why and changes nothing.
+
+The central relief worker tab can log a call from someone looking for a person, search victims by any part of a name, show a victim's relationships, add a location, and add supplies to a shelter.
+
+The location relief worker tab can list missing people, list who is at a location, register, move or discharge a victim, show a victim's details, show a shelter's stock, give supplies to a victim, and record a treatment.
+
+A person counts as missing when they are not at a shelter. Victims are looked up by their id, which the lists show as `#3`.
+
+Changes made in the app stay in memory and are lost when it closes. The database is only read.
