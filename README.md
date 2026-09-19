@@ -68,3 +68,27 @@ The location relief worker tab can list missing people, list who is at a locatio
 A person counts as missing when they are not at a shelter. Victims are looked up by their id, which the lists show as `#3`.
 
 Changes made in the app stay in memory and are lost when it closes. The database is only read.
+
+## Family API
+
+| Method and path | Parameters | Result |
+|---|---|---|
+| GET `/health` | | 200 while the process runs |
+| GET `/ready` | | 200 if the database answers, otherwise 503 |
+| GET `/persons` | | Every person, with id and name |
+| GET `/persons/{id}/ancestors` | `maxDepth` (default 50) | The person, their ancestors with distance, and the links between them |
+| GET `/persons/{id}/descendants` | `maxDepth` | The same, downward |
+| POST `/parent-child` | `parent`, `child`, `kind` | 201, or 400 with a reason |
+| DELETE `/parent-child` | `parent`, `child` | 200, or 400 if the link does not exist |
+| POST `/partnerships` | `person1`, `person2`, `start`, optional `end` | 201 with the new id |
+
+`kind` is `BIOLOGICAL`, `ADOPTIVE` or `STEP`. Dates are `yyyy-mm-dd`. Parameters go in the query string or as a form body:
+
+```
+curl -X POST localhost:8080/parent-child -d 'parent=3&child=1&kind=BIOLOGICAL'
+curl 'localhost:8080/persons/3/descendants?maxDepth=2'
+```
+
+The database enforces the family rules: nobody is their own parent or ancestor, a pair has at most one link, and a child has at most two biological parents. Step and adoptive parents have no limit.
+
+The API has no authentication. Keep it on a private network.
