@@ -92,3 +92,15 @@ curl 'localhost:8080/persons/3/descendants?maxDepth=2'
 The database enforces the family rules: nobody is their own parent or ancestor, a pair has at most one link, and a child has at most two biological parents. Step and adoptive parents have no limit.
 
 The API has no authentication. Keep it on a private network.
+
+## Tests
+
+```
+mvn verify
+```
+
+Unit tests need nothing else. The database tests run only when `TEST_DB_URL` is set, and they wipe that database, so give them an empty one:
+
+```
+TEST_DB_URL=jdbc:postgresql://localhost:5432/drms_test TEST_DB_USER=drms TEST_DB_PASSWORD=drms mvn verify
+```
