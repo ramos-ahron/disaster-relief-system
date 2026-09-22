@@ -92,3 +92,51 @@ Some choices worth knowing:
 - There is no static state. Tests build a fresh `ReliefRegistry` each time.
 
 `FamilyMember` and `ParentKind` model the family graph used by the API. It is a directed graph without cycles, in which a person can have several parents and ancestors can be shared. `RelationshipType` covers the looser, symmetric relationships the desktop app shows (sibling, friend, couple, and so on).
+
+## Family store
+
+`FamilyStore` is an interface with two implementations:
+
+- `JdbcFamilyStore` runs on the `ParentChild` and `Partnership` tables. The database enforces the rules and the class turns SQL states into messages.
+- `InMemoryFamilyStore` keeps `FamilyMember` objects, whose `link` method checks the same rules.
+
+`FamilyStoreContract` is one set of tests that both implementations must pass, so they cannot drift apart. `ApiServer` takes any `FamilyStore`, which lets its tests run over HTTP without a database.
+
+## Database
+
+```mermaid
+erDiagram
+    INQUIRER ||--o{ INQUIRY_LOG : inquirer
+    Location ||--o{ DisasterVictim : location_id
+    DisasterVictim ||--o{ MedicalRecord : victim_id
+    Location ||--o{ MedicalRecord : location_id
+    DisasterVictim ||--o{ Relationship : "victim1_id, victim2_id"
+    DisasterVictim ||--o{ DietaryRestriction : victim_id
+    DisasterVictim ||--o{ ParentChild : "parent_id, child_id"
+    DisasterVictim ||--o{ Partnership : "person1_id, person2_id"
+
+    Supply {
+        int supply_id PK
+        varchar type
+        int quantity
+        varchar reference_type "Location or Victim"
+        int reference_id
+    }
+    ParentChild {
+        int parent_id PK
+        int child_id PK
+        varchar kind
+        smallint bio_slot
+    }
+    Partnership {
+        int partnership_id PK
+        int person1_id
+        int person2_id
+        date start_date
+        date end_date
+    }
+```
+
+`Supply.reference_id` points at a location or a victim depending on `reference_type`, so it has no foreign key.
+
+The migrations in `database/migrations` use `IF NOT EXISTS`, `CREATE OR REPLACE` and `DROP ... IF EXISTS` throughout. `migrate.sh` applies all of them every time, in name order, and there is no migration history table. Keep new migrations replayable and additive so the running version keeps working while a new one rolls out.
