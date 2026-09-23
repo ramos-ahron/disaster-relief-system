@@ -140,3 +140,36 @@ erDiagram
 `Supply.reference_id` points at a location or a victim depending on `reference_type`, so it has no foreign key.
 
 The migrations in `database/migrations` use `IF NOT EXISTS`, `CREATE OR REPLACE` and `DROP ... IF EXISTS` throughout. `migrate.sh` applies all of them every time, in name order, and there is no migration history table. Keep new migrations replayable and additive so the running version keeps working while a new one rolls out.
+
+## Family rules
+
+| Rule | Enforced by |
+|---|---|
+| No self parent | CHECK `parentchild_no_self` |
+| One link per pair, whatever the kind | primary key `(parent_id, child_id)` |
+| Both people exist | foreign keys, `ON DELETE CASCADE` |
+| Kind is BIOLOGICAL, ADOPTIVE or STEP | CHECK `parentchild_kind_check` |
+| At most two biological parents | trigger assigns `bio_slot` 1 or 2; partial unique index on `(child_id, bio_slot)` |
+| Nobody is their own ancestor | trigger `parentchild_guard`, under an advisory lock |
+| A partnership is stored once per pair and start date | CHECK `person1_id < person2_id`, UNIQUE `(person1_id, person2_id, start_date)` |
+| End date not before start date | CHECK `partnership_dates_check` |
+
+### Cycles under concurrency
+
+Two transactions can each add half of a cycle: A becomes parent of B while B becomes parent of A. Under READ COMMITTED each would check, see no cycle and commit.
+
+The trigger takes `pg_advisory_xact_lock` on a fixed key before it checks. The second transaction waits until the first commits, then its check runs with a fresh snapshot, sees the new row and fails with SQL state `FC001`. `JdbcFamilyStoreTest.oppositeHalvesOfACycleCannotBothCommit` runs this race with two connections; it fails if the lock is removed.
+
+The cost is that writes to `ParentChild` run one at a time. Reads are not blocked. If write volume ever matters, lock per connected component or switch to SERIALIZABLE with retries.
+
+### Walking the graph
+
+`JdbcFamilyStore` walks `ParentChild` with a recursive CTE, up through `child_id` to `parent_id` or down the other way. `UNION` drops repeated rows, so an ancestor reached by two routes is expanded once per depth, and the outer query keeps the shortest distance. `maxDepth` caps the walk even if bad data contains a cycle; the store then refuses to build a graph from it.
+
+The primary key serves the downward walk. The index `parentchild_child_idx` serves the upward one.
+
+## Known limits
+
+- The desktop app does not write to the database.
+- `JdbcFamilyStore` opens a connection per call; there is no pool.
+- The API has no authentication or TLS.
