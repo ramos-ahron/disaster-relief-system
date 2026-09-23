@@ -104,3 +104,22 @@ Unit tests need nothing else. The database tests run only when `TEST_DB_URL` is 
 ```
 TEST_DB_URL=jdbc:postgresql://localhost:5432/drms_test TEST_DB_USER=drms TEST_DB_PASSWORD=drms mvn verify
 ```
+
+## Project layout
+
+| Path | Contents |
+|---|---|
+| `src/main/java/edu/ucalgary/oop/model` | Domain classes and their rules |
+| `src/main/java/edu/ucalgary/oop/service` | The in-memory registry, the two worker services, the `FamilyStore` interface |
+| `src/main/java/edu/ucalgary/oop/persistence` | JDBC: loading the registry, the PostgreSQL family store |
+| `src/main/java/edu/ucalgary/oop/api` | The HTTP API |
+| `src/main/java/edu/ucalgary/oop/ui` | The Swing window |
+| `src/main/resources/gender-options.txt` | Allowed gender values, one per line |
+| `database/migrations` | Schema, applied in name order by `database/migrate.sh` |
+| `database/sample/demo_data.sql` | Invented demo data |
+| `Dockerfile`, `k8s`, `.github/workflows` | Container image, Kubernetes manifests, CI pipeline |
+
+## More
+
+- [docs/architecture.md](docs/architecture.md): class and table diagrams, where each rule is enforced
+- [docs/deployment.md](docs/deployment.md): deploying the API to Azure Kubernetes Service
